@@ -1,23 +1,20 @@
-use std::io::Write;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+use rayon::prelude::*;
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
-    cuda::set_include_dir();
     let (write, kernel_paths) = cuda::build_ptx();
     if write {
-        let mut file = std::fs::File::create("src/lib.rs").unwrap();
-        for kernel_path in kernel_paths {
-            let name = kernel_path.file_stem().unwrap().to_str().unwrap();
-            file.write_all(
-                format!(
-                    r#"pub const {}: &str = include_str!(concat!(env!("OUT_DIR"), "/{}.ptx"));"#,
-                    name.to_uppercase().replace('.', "_"),
-                    name
-                )
-                .as_bytes(),
-            )
-            .unwrap();
-            file.write_all(&[b'\n']).unwrap();
+        let mut file = std::fs::File::create("src/lib.rs").expect("Failed to create src/lib.rs");
+        for kernel_path in &kernel_paths {
+            if let Some(name) = kernel_path.file_stem().and_then(|stem| stem.to_str()) {
+                let upper_name = name.to_uppercase().replace('.', "_");
+                let include_str = format!(r#"pub const {}: &str = include_str!(concat!(env!("OUT_DIR"), "/{}.ptx"));"#, upper_name, name);
+                writeln!(file, "{}", include_str).expect("Failed to write to src/lib.rs");
+            }
         }
     }
 }
