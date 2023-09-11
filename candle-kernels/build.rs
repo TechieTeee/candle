@@ -6,18 +6,32 @@ use rayon::prelude::*;
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
-    let (write, kernel_paths) = cuda::build_ptx();
-    if write {
-        let mut file = std::fs::File::create("src/lib.rs").expect("Failed to create src/lib.rs");
-        for kernel_path in &kernel_paths {
-            if let Some(name) = kernel_path.file_stem().and_then(|stem| stem.to_str()) {
-                let upper_name = name.to_uppercase().replace('.', "_");
-                let include_str = format!(r#"pub const {}: &str = include_str!(concat!(env!("OUT_DIR"), "/{}.ptx"));"#, upper_name, name);
-                writeln!(file, "{}", include_str).expect("Failed to write to src/lib.rs");
+    if let (write, kernel_paths) = cuda::build_ptx() {
+        if write {
+            if let Ok(mut file) = std::fs::File::create("src/lib.rs") {
+                kernel_paths
+                    .iter()
+                    .filter_map(|kernel_path| {
+                        kernel_path
+                            .file_stem()
+                            .and_then(|stem| stem.to_str())
+                            .map(|name| (name, kernel_path))
+                    })
+                    .for_each(|(name, kernel_path)| {
+                        let upper_name = name.to_uppercase().replace('.', "_");
+                        if let Err(err) =
+                            writeln!(file, "pub const {}: &str = include_str!(concat!(env!(\"OUT_DIR\"), \"/{}.ptx\"));", upper_name, name)
+                        {
+                            eprintln!("Failed to write to src/lib.rs: {}", err);
+                        }
+                    });
+            } else {
+                eprintln!("Failed to create src/lib.rs");
             }
         }
     }
 }
+
 
 mod cuda {
     pub fn set_include_dir() {
